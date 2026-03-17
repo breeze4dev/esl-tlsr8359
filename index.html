@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>电子价签蓝牙控制器</title>
+	<link rel="stylesheet" href="css/main.css">
+	<script src="js/utils.js"></script>
+	<script src="js/dithering.js"></script>
+	<script src="js/dithering_ref.js"></script>
+	<script src="js/paint.js"></script>
+	<script src="js/crop.js"></script>
+</head>
+<body>
+	<div class="main">
+		<h3>墨水屏日历设置</h3>
+		<div class="info-notice">
+			<div class="info-content">
+				<span class="info-text">注意：本工具目前仅支持采用了tlsr8359芯片的汉朔2.13寸黑白红三色价签，其他价签请参考其他开源项目（致敬原作者）:</span><br>
+				<a href="https://github.com/atc1441/ATC_TLSR_Paper" class="info-link" target="_blank">ATC_TLSR_Paper</a>
+				<a href="https://github.com/reece15/stellar-L3N-etag?tab=readme-ov-file" class="info-link" target="_blank">stellar-L3N-etag</a>
+				<a href="https://github.com/tsl0922/EPD-nRF5" class="info-link" target="_blank">EPD-nRF5</a>
+				<a href="https://github.com/tpunix/HMCLOCK" class="info-link" target="_blank">HMCLOCK</a>
+			</div>
+		</div>
+		<h4></h4>
+		<fieldset>
+			<legend>蓝牙连接</legend>
+			<div class="flex-container">
+				<div class="flex-group">
+					<button id="connectbutton" type="button" class="primary" onclick="preConnect()">连接</button>
+					<button id="reconnectbutton" type="button" class="secondary" onclick="reConnect()">重新连接</button>
+					<button type="button" class="secondary" onclick="clearLog()">清空日志</button>
+				</div>
+			</div>
+			<div class="log-container" id="log"></div>
+		</fieldset>
+
+		<fieldset>
+			<legend>设备控制</legend>
+			<div class="flex-container">
+				<div class="flex-group">
+					<button id="btnImageMode" type="button" class="primary" onclick="setImageMode()">图片模式</button>
+					<button id="btnCalendarMode" type="button" class="primary" onclick="setCalendarMode()">日历模式</button>
+					<button id="btnClockMode" type="button" class="primary" onclick="setClockMode()">时钟模式</button>
+					<label for="clock_style">时钟样式：</label>
+					<select id="clock_style">
+						<option value="1">样式 1（日期+星期+温度+电池）</option>
+						<option value="2">样式 2（数码管风格）</option>
+						<option value="3">样式 3（仅大号时间）</option>
+					</select>
+				</div>
+			</div>
+			<div class="flex-container">
+				<div class="flex-group">
+					<button id="btnSelectDate" type="button" class="primary" onclick="showCalendar()">选择日期</button>
+					<button id="btnClearBlack" type="button" class="primary" onclick="clearScreen('00')">清屏全黑</button>
+					<button id="btnClearWhite" type="button" class="primary" onclick="clearScreen('ff')">清屏全白</button>
+				</div>
+			</div>
+			<div class="flex-container">
+				<div class="flex-group">
+					<label>时间偏移</label>
+					<input type="number" id="hour-offset" min="-12" max="24" value="0" style="width:48px"> 小时
+					<button id="btnApplyOffset" type="button" class="primary" onclick="applyTimeOffset()">应用偏移</button>
+				</div>
+			</div>
+			<div class="flex-container">
+				<div class="flex-group" style="justify-content: flex-end;">
+					<label for="cmdTXT">命令(hex):</label>
+					<input type="text" id="cmdTXT" style="min-width: 200px;" placeholder="">
+					<button id="sendcmdbutton" type="button" class="secondary" onclick="sendcmd()">发送命令</button>
+				</div>
+			</div>
+		</fieldset>
+
+		<div id="calendarModal" class="modal" style="display:none;">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h3>选择日期</h3>
+					<span class="modal-close" onclick="closeCalendar()">&times;</span>
+				</div>
+				<div class="modal-body">
+					<div class="calendar-container-inner">
+						<div class="calendar-header">
+							<button type="button" onclick="changeMonth(-1)">&lt;</button>
+							<span id="currentMonthYear"></span>
+							<button type="button" onclick="changeMonth(1)">&gt;</button>
+						</div>
+						<div class="calendar-grid">
+							<div class="calendar-weekdays">
+								<span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+							</div>
+							<div id="calendarDays" class="calendar-days"></div>
+						</div>
+						<div class="calendar-footer">
+							<button type="button" class="secondary" onclick="closeCalendar()">取消</button>
+							<button type="button" class="primary" onclick="syncCustomDate()">同步日期</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<fieldset>
+			<legend>蓝牙传图</legend>
+			<div class="flex-container">
+				<input type="file" id="imageFile" accept=".png,.jpg,.bmp,.webp,.jpeg" onchange="updateImage()">
+			</div>
+			<div class="flex-container options">
+				<div class="flex-group">
+					<label for="canvasSize">画布尺寸:</label>
+					<select id="canvasSize" onchange="updateCanvasSize()">
+						<option value="2.13_250_122" selected>2.13 (250x122)</option>
+					</select>
+				</div>
+				<div class="flex-group">
+					<label for="ditherMode">颜色模式:</label>
+					<select id="ditherMode" onchange="applyDither()">
+						<option value="blackWhiteColor">双色(黑白)</option>
+						<option value="threeColor" selected>三色(黑白红)</option>
+					</select>
+				</div>
+				<div class="flex-group">
+					<label for="ditherAlg">抖动算法:</label>
+					<select id="ditherAlg" onchange="applyDither()">
+						<option value="floydSteinberg">Floyd-Steinberg</option>
+						<option value="atkinson">Atkinson</option>
+						<option value="bayer">Bayer</option>
+						<option value="stucki">Stucki</option>
+						<option value="jarvis">Jarvis-Judice-Ninke</option>
+						<option value="none">无抖动</option>
+					</select>
+				</div>
+				<div class="flex-group">
+					<label for="ditherStrength">抖动强度:</label>
+					<input type="range" min="0" max="5" step="0.1" value="1.0" id="ditherStrength">
+					<label id="ditherStrengthValue">1.0</label>
+				</div>
+				<div class="flex-group">
+					<label for="ditherContrast">对比度:</label>
+					<input type="range" min="0.5" max="2" step="0.1" value="1.2" id="ditherContrast">
+					<label id="ditherContrastValue">1.2</label>
+				</div>
+			</div>
+			<div class="flex-container options" style="display:none;">
+				<div class="flex-group">
+					<label for="mtusize">MTU:</label>
+					<input type="number" id="mtusize" value="20" min="0" max="255">
+					<label for="interleavedcount">确认间隔:</label>
+					<input type="number" id="interleavedcount" value="50" min="0" max="500">
+				</div>
+			</div>
+			<div class="status-bar"><b>状态：</b><span id="status"></span></div>
+			<div class="flex-container">
+				<div class="flex-group">
+					<button id="btnClearCanvas" type="button" class="primary" onclick="clearCanvas()">清除画布</button>
+					<button id="sendimgbutton" type="button" class="primary" onclick="sendimg()">发送图片</button>
+				</div>
+			</div>
+			<div class="canvas-container">
+				<div class="canvas-title"></div>
+				<canvas id="canvas" width="250" height="122"></canvas>
+				<div class="flex-container canvas-tools">
+					<div class="flex-group tool-buttons">
+						<button id="brush-mode" title="画笔" class="tool-button">✏️</button>
+						<button id="eraser-mode" title="橡皮擦" class="tool-button">🧽</button>
+						<button id="text-mode" title="添加文字" class="tool-button">T</button>
+						<button id="undo-btn" title="撤销 (Ctrl+Z)" class="tool-button" disabled>↶</button>
+						<button id="redo-btn" title="重做 (Ctrl+Y)" class="tool-button" disabled>↷</button>
+					</div>
+				</div>
+				<div class="flex-container canvas-tools">
+					<div class="flex-group brush-tools">
+						<label for="brush-color">颜色:</label>
+						<select id="brush-color">
+							<option value="#000000">黑色</option>
+							<option value="#FF0000">红色</option>
+							<option value="#FFFF00">黄色</option>
+							<option value="#00FF00">绿色</option>
+							<option value="#0000FF">蓝色</option>
+							<option value="#FFFFFF">白色</option>
+						</select>
+						<label for="brush-size">粗细:</label>
+						<input type="number" id="brush-size" value="2" min="1" max="100">
+					</div>
+				</div>
+				<div class="flex-container canvas-tools">
+					<div class="flex-group text-tools">
+						<label for="font-family">字体:</label>
+						<select id="font-family">
+							<option value="Arial">Arial</option>
+							<option value="sans-serif">Sans-serif</option>
+							<option value="monospace">Monospace</option>
+							<option value="SimSun">宋体</option>
+							<option value="SimHei">黑体</option>
+							<option value="Microsoft Yahei">微软雅黑</option>
+							<option value="Microsoft JhengHei">微软正黑体</option>
+							<option value="KaiTi">楷体</option>
+							<option value="NSimSun">新宋体</option>
+							<option value="FangSong">仿宋</option>
+							<option value="YouYuan">幼圆</option>
+							<option value="LiSu">隶书</option>
+							<option value="STHeiti">华文黑体</option>
+							<option value="STXihei">华文细黑</option>
+							<option value="STKaiti">华文楷体</option>
+							<option value="STSong">华文宋体</option>
+							<option value="STFangsong">华文仿宋</option>
+							<option value="STZhongsong">华文中宋</option>
+							<option value="STHupo">华文琥珀</option>
+							<option value="STXinwei">华文新魏</option>
+							<option value="STLiti">华文隶书</option>
+							<option value="STXingkai">华文行楷</option>
+							<option value="FZShuTi">方正舒体</option>
+							<option value="FZYaoti">方正姚体</option>
+							<option value="PingFang SC">苹方</option>
+							<option value="Source Han Sans CN">思源黑体</option>
+							<option value="Source Han Serif SC">思源宋体</option>
+							<option value="WenQuanYi Micro Hei">文泉驿微米黑</option>
+						</select>
+						<label for="font-size">大小:</label>
+						<input type="number" id="font-size" value="16" min="1" max="100">
+					</div>
+					<div class="flex-group text-tools">
+						<input type="text" id="text-input" placeholder="输入文字" style="width:150px">
+						<button id="text-bold" title="粗体">B</button>
+						<button id="text-italic" title="斜体">I</button>
+						<button id="add-text-btn" class="primary">添加文字</button>
+					</div>
+					<div class="flex-group crop-tools">
+						<button id="crop-zoom-in" title="放大" class="secondary">+</button>
+						<button id="crop-zoom-out" title="缩小" class="secondary">-</button>
+						<button id="crop-move-left" title="左移">⇦</button>
+						<button id="crop-move-up" title="上移">⇧</button>
+						<button id="crop-move-down" title="下移">⇩</button>
+						<button id="crop-move-right" title="右移">⇨</button>
+						<button class="primary" onclick="applyDither()">完成</button>
+					</div>
+				</div>
+			</div>
+		</fieldset>
+
+		<fieldset>
+			<legend>固件升级</legend>
+			<div class="flex-container">
+				<div class="flex-group">
+					<a href="uart_flasher.html" class="fw-upgrade-link">串口升级</a>
+					<a href="ATC_TLSR_PaperBLEcontrol.html" class="fw-upgrade-link">蓝牙 OTA 升级</a>
+				</div>
+			</div>
+		</fieldset>
+	</div>
+
+	<script>
+		let bleDevice, gattServer;
+		let epdService, epdCharacteristic;
+		let rxtxService, rxtxCharacteristic;
+		let reconnectTrys = 0;
+		let canvas, ctx;
+		let paintManager, cropManager;
+
+		const canvasSizes = [
+			{ name: '2.13_250_122', width: 250, height: 122 }
+		];
+
+		function resetVariables() {
+			gattServer = null;
+			epdService = null;
+			epdCharacteristic = null;
+			rxtxService = null;
+			rxtxCharacteristic = null;
+		}
+
+		function clearLog() {
+			document.getElementById('log').innerHTML = '';
+		}
+
+		async function handleError(error) {
+			console.error(error);
+			resetVariables();
+			if (bleDevice == null) return;
+			if (reconnectTrys <= 5) {
+				reconnectTrys++;
+				await connect();
+			} else {
+				addLog('连接失败，已放弃重试');
+				reconnectTrys = 0;
+			}
+		}
+
+		async function sendCommand(cmd) {
+			if (epdCharacteristic)
+				await epdCharacteristic.writeValueWithResponse(cmd);
+			else
+				addLog('服务不可用，请先连接蓝牙');
+		}
+
+		async function clearScreen(cmd) {
+			addLog('清屏刷新显示');
+			await sendCommand(hexToBytes('00' + cmd));
+			await sendCommand(hexToBytes('01'));
+		}
+
+		async function rxTxSendCommand(cmd) {
+			if (rxtxCharacteristic)
+				await rxtxCharacteristic.writeValueWithResponse(cmd);
+			else
+				addLog('服务不可用，请先连接蓝牙');
+		}
+
+		async function sendBufferData(value, type) {
+			addLog('发送图片 模式:' + type + ' 大小 ' + (value.length / 2 / 1024).toFixed(2) + ' KB');
+			const code = type === 'bwr' ? '00' : 'ff';
+			const step = 480;
+			for (let i = 0, partIndex = 0; i < value.length; i += step, partIndex++) {
+				addLog('块 ' + (partIndex + 1) + ' 起始 ' + (i / 2));
+				await sendCommand(hexToBytes('03' + code + intToHex(Math.floor(i / 2), 2) + value.substring(i, i + step)));
+			}
+		}
+
+		function getUnixTime() {
+			const hourOffset = parseInt(document.getElementById('hour-offset').value, 10) || 0;
+			const unixNow = Math.round(Date.now() / 1000) + (60 * 60 * hourOffset) - new Date().getTimezoneOffset() * 60;
+			const date = new Date((unixNow + new Date().getTimezoneOffset() * 60) * 1000);
+			return {
+				unixNow,
+				localeTimeString: date.toLocaleTimeString(),
+				year: date.getFullYear(),
+				month: date.getMonth() + 1,
+				day: date.getDate(),
+				week: date.getDay() || 7
+			};
+		}
+
+		async function setTime() {
+			const { unixNow, localeTimeString, year, month, day, week } = getUnixTime();
+			addLog('设置时间 ' + localeTimeString);
+			await rxTxSendCommand(hexToBytes('dd' + intToHex(unixNow, 4) + intToHex(year, 2) + intToHex(month, 1) + intToHex(day, 1) + intToHex(week, 1)));
+			await rxTxSendCommand(hexToBytes('e2'));
+		}
+
+		async function applyTimeOffset() {
+			await setTime();
+		}
+
+		async function setImageMode() {
+			addLog('切换为图片模式');
+			await rxTxSendCommand(hexToBytes('e100'));
+		}
+
+		async function setCalendarMode() {
+			await rxTxSendCommand(hexToBytes('e104'));
+			await setTime();
+		}
+
+		let calendarCurrentDate = new Date();
+		let calendarSelectedDate = new Date();
+
+		function showCalendar() {
+			calendarCurrentDate = new Date();
+			calendarSelectedDate = new Date();
+			updateCalendarDisplay();
+			document.getElementById('calendarModal').style.display = 'flex';
+		}
+
+		function closeCalendar() {
+			document.getElementById('calendarModal').style.display = 'none';
+		}
+
+		function changeMonth(direction) {
+			calendarCurrentDate.setMonth(calendarCurrentDate.getMonth() + direction);
+			updateCalendarDisplay();
+		}
+
+		function updateCalendarDisplay() {
+			const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+			document.getElementById('currentMonthYear').textContent =
+				calendarCurrentDate.getFullYear() + '年' + monthNames[calendarCurrentDate.getMonth()];
+			const calendarDays = document.getElementById('calendarDays');
+			calendarDays.innerHTML = '';
+			const year = calendarCurrentDate.getFullYear();
+			const month = calendarCurrentDate.getMonth();
+			const today = new Date();
+			const firstDay = new Date(year, month, 1);
+			const lastDay = new Date(year, month + 1, 0);
+			const daysInMonth = lastDay.getDate();
+			const startDayOfWeek = firstDay.getDay();
+			for (let i = 0; i < startDayOfWeek; i++) {
+				const prevMonth = new Date(year, month, -startDayOfWeek + i + 1);
+				calendarDays.appendChild(createDayElement(prevMonth.getDate(), true, false, false));
+			}
+			for (let day = 1; day <= daysInMonth; day++) {
+				const currentDate = new Date(year, month, day);
+				const isToday = currentDate.toDateString() === today.toDateString();
+				const isSelected = currentDate.toDateString() === calendarSelectedDate.toDateString();
+				const el = createDayElement(day, false, isToday, isSelected);
+				el.onclick = () => selectDate(currentDate);
+				calendarDays.appendChild(el);
+			}
+			const remainingCells = 42 - (startDayOfWeek + daysInMonth);
+			for (let i = 1; i <= remainingCells; i++) {
+				const nextMonth = new Date(year, month + 1, i);
+				calendarDays.appendChild(createDayElement(nextMonth.getDate(), true, false, false));
+			}
+		}
+
+		function createDayElement(day, isOtherMonth, isToday, isSelected) {
+			const el = document.createElement('div');
+			el.className = 'calendar-day';
+			el.textContent = day;
+			if (isOtherMonth) el.classList.add('other-month');
+			if (isToday) el.classList.add('today');
+			if (isSelected) el.classList.add('selected');
+			return el;
+		}
+
+		function selectDate(date) {
+			calendarSelectedDate = new Date(date);
+			updateCalendarDisplay();
+		}
+
+		async function syncCustomDate() {
+			const now = new Date();
+			const customDate = new Date(
+				calendarSelectedDate.getFullYear(),
+				calendarSelectedDate.getMonth(),
+				calendarSelectedDate.getDate(),
+				now.getHours(),
+				now.getMinutes(),
+				now.getSeconds()
+			);
+			const unix = Math.floor(customDate.getTime() / 1000);
+			const year = customDate.getFullYear();
+			const month = customDate.getMonth() + 1;
+			const day = customDate.getDate();
+			const week = customDate.getDay() || 7;
+			await rxTxSendCommand(hexToBytes('e104'));
+			await rxTxSendCommand(hexToBytes('dd' + intToHex(unix, 4) + intToHex(year, 2) + intToHex(month, 1) + intToHex(day, 1) + intToHex(week, 1)));
+			await rxTxSendCommand(hexToBytes('e2'));
+			addLog('日期已同步: ' + customDate.toLocaleDateString());
+			closeCalendar();
+		}
+
+		async function setClockMode() {
+			const v = document.getElementById('clock_style').value;
+			await rxTxSendCommand(hexToBytes('e10' + v));
+			await setTime();
+		}
+
+		function disconnect() {
+			resetVariables();
+			addLog('已断开连接');
+			document.getElementById('connectbutton').textContent = '连接';
+			updateButtonStatus();
+		}
+
+		async function connectRXTX() {
+			rxtxService = await gattServer.getPrimaryService('00001f10-0000-1000-8000-00805f9b34fb');
+			rxtxCharacteristic = await rxtxService.getCharacteristic('00001f1f-0000-1000-8000-00805f9b34fb');
+			addLog('串口服务已连接');
+		}
+
+		async function preConnect() {
+			if (gattServer && gattServer.connected) {
+				if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+				return;
+			}
+			reconnectTrys = 0;
+			try {
+				bleDevice = await navigator.bluetooth.requestDevice({
+					filters: [{ namePrefix: 'ESL' }],
+					optionalServices: ['00001f10-0000-1000-8000-00805f9b34fb', '13187b10-eba9-a3ba-044e-83d3217d9a38']
+				});
+			} catch (e) {
+				addLog('请打开蓝牙并选择 ESL 设备');
+				return;
+			}
+			bleDevice.addEventListener('gattserverdisconnected', disconnect);
+			try { await connect(); } catch (e) { await handleError(e); }
+		}
+
+		async function reConnect() {
+			reconnectTrys = 0;
+			if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+			resetVariables();
+			addLog('重新连接');
+			setTimeout(async () => { await connect(); }, 300);
+		}
+
+		async function connect() {
+			if (epdCharacteristic) return;
+			addLog('正在连接 ' + bleDevice.name);
+			gattServer = await bleDevice.gatt.connect();
+			addLog('GATT 已连接');
+			epdService = await gattServer.getPrimaryService('13187b10-eba9-a3ba-044e-83d3217d9a38');
+			epdCharacteristic = await epdService.getCharacteristic('4b646063-6264-f3a7-8941-e65356ea82fe');
+			await epdCharacteristic.startNotifications();
+			epdCharacteristic.addEventListener('characteristicvaluechanged', ev => {
+				const buf = new Uint8Array(ev.target.value.buffer);
+				const hex = bytesToHex(buf);
+				addLog('EPD 返回 ' + hex);
+				if (buf.length >= 2 && buf[0] === 0xF0) {
+					const scene = buf[1];
+					if (scene >= 1 && scene <= 4) {
+						const el = document.getElementById('clock_style');
+						if (el) { el.value = String(scene); addLog('已同步时钟样式: ' + scene); }
+					}
+				}
+			});
+			document.getElementById('connectbutton').textContent = '断开';
+			await connectRXTX();
+			await sendCommand(hexToBytes('F0'));
+			updateButtonStatus();
+		}
+
+		function setStatus(text) {
+			const el = document.getElementById('status');
+			if (el) el.textContent = text;
+		}
+
+		function addLog(logTXT) {
+			const log = document.getElementById('log');
+			const now = new Date();
+			const time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0') + ' ';
+			const line = document.createElement('div');
+			line.className = 'log-line';
+			const timeSpan = document.createElement('span');
+			timeSpan.className = 'time';
+			timeSpan.textContent = time;
+			line.appendChild(timeSpan);
+			line.appendChild(document.createTextNode(logTXT));
+			log.appendChild(line);
+			log.scrollTop = log.scrollHeight;
+			while (log.childNodes.length > 20) log.removeChild(log.firstChild);
+		}
+
+		function updateButtonStatus(forceDisabled) {
+			const connected = gattServer != null && gattServer.connected;
+			const disabled = forceDisabled ? true : !connected;
+			document.getElementById('reconnectbutton').disabled = !bleDevice || connected;
+			const ctrlIds = ['btnImageMode', 'btnCalendarMode', 'btnClockMode', 'btnClearBlack', 'btnClearWhite', 'btnApplyOffset', 'btnSelectDate', 'btnClearCanvas', 'sendimgbutton', 'sendcmdbutton'];
+			ctrlIds.forEach(function (id) {
+				const el = document.getElementById(id);
+				if (el) el.disabled = disabled;
+			});
+		}
+
+		async function sendimg() {
+			if (typeof cropManager !== 'undefined' && cropManager.isCropMode()) {
+				alert('请先完成图片裁剪');
+				return;
+			}
+			const canvasEl = document.getElementById('canvas');
+			const w = canvasEl.width;
+			const h = canvasEl.height;
+			const mode = document.getElementById('ditherMode').value;
+			if (mode !== 'blackWhiteColor' && mode !== 'threeColor') {
+				addLog('本设备仅支持双色或三色传图，请切换颜色模式后重试');
+				return;
+			}
+			if (!((w === 250 && h === 122) || (w === 122 && h === 250))) {
+				addLog('画布尺寸须为 250x122 或 122x250');
+				return;
+			}
+			const startTime = Date.now();
+			await rxTxSendCommand(hexToBytes('e100'));
+			addLog('已切换为图片模式');
+			await sendCommand(hexToBytes('0000'));
+			await sendCommand(hexToBytes('020000'));
+			await sendBufferData(bytesToHex(canvas2bytes(canvasEl)), 'bw');
+			if (mode === 'threeColor')
+				await sendBufferData(bytesToHex(canvas2bytes(canvasEl, 'bwr')), 'bwr');
+			await sendCommand(hexToBytes('0101'));
+			await rxTxSendCommand(hexToBytes('e105'));
+			addLog('已保存到设备，耗时 ' + ((Date.now() - startTime) / 1000).toFixed(1) + ' s');
+		}
+
+		async function sendcmd() {
+			const inputEl = document.getElementById('cmdTXT');
+			if (!inputEl) return;
+			let hex = inputEl.value.trim();
+			if (!hex) {
+				addLog('请输入要发送的命令（十六进制）');
+				return;
+			}
+			hex = hex.replace(/\s+/g, '');
+			if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) {
+				addLog('命令格式错误，请输入偶数位十六进制');
+				return;
+			}
+			if (!epdCharacteristic) {
+				addLog('服务不可用，请先连接蓝牙');
+				return;
+			}
+			try {
+				const bytes = hexToBytes(hex);
+				await epdCharacteristic.writeValueWithResponse(bytes);
+				addLog('已发送命令: ' + hex.toUpperCase());
+			} catch (e) {
+				console.error(e);
+				addLog('发送命令失败: ' + (e && e.message ? e.message : e));
+			}
+		}
+
+		function fillCanvas(style) {
+			ctx.fillStyle = style;
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+		}
+
+		function setCanvasTitle(title) {
+			const el = document.querySelector('.canvas-title');
+			if (el) {
+				el.innerText = title || '';
+				el.style.display = title ? 'block' : 'none';
+			}
+		}
+
+		function updateImage() {
+			const imageFile = document.getElementById('imageFile');
+			if (!imageFile.files.length) {
+				fillCanvas('white');
+				return;
+			}
+			const image = new Image();
+			image.onload = function () {
+				URL.revokeObjectURL(this.src);
+				if (image.width / image.height === canvas.width / canvas.height) {
+					if (cropManager.isCropMode()) cropManager.exitCropMode();
+					ctx.drawImage(image, 0, 0, image.width, image.height, 0, 0, canvas.width, canvas.height);
+					convertDithering();
+				} else {
+					alert('图片宽高比例与画布不匹配，将进入裁剪模式。请缩放/移动图片后点击“完成”。');
+					paintManager.setActiveTool(null, '');
+					cropManager.initializeCrop();
+				}
+			};
+			image.src = URL.createObjectURL(imageFile.files[0]);
+		}
+
+		function updateCanvasSize() {
+			const name = document.getElementById('canvasSize').value;
+			const size = canvasSizes.find(s => s.name === name);
+			if (size) {
+				canvas.width = size.width;
+				canvas.height = size.height;
+				updateImage();
+			}
+		}
+
+		function convertDithering() {
+			paintManager.redrawTextElements();
+			paintManager.redrawLineSegments();
+			const contrast = parseFloat(document.getElementById('ditherContrast').value);
+			const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			const imageData = new ImageData(new Uint8ClampedArray(currentImageData.data), currentImageData.width, currentImageData.height);
+			adjustContrast(imageData, contrast);
+			const alg = document.getElementById('ditherAlg').value;
+			const strength = parseFloat(document.getElementById('ditherStrength').value);
+			const mode = document.getElementById('ditherMode').value;
+			const processedData = processImageData(ditherImage(imageData, alg, strength, mode), mode);
+			const finalImageData = decodeProcessedData(processedData, canvas.width, canvas.height, mode);
+			ctx.putImageData(finalImageData, 0, 0);
+			paintManager.saveToHistory();
+		}
+
+		function applyDither() {
+			cropManager.finishCrop(() => convertDithering());
+		}
+
+		function clearCanvas() {
+			if (!confirm('清除画布内容?')) return;
+			fillCanvas('white');
+			paintManager.clearElements();
+			if (cropManager.isCropMode()) cropManager.exitCropMode();
+			paintManager.saveToHistory();
+		}
+
+		function initEventHandlers() {
+			document.getElementById('ditherStrength').addEventListener('input', function () {
+				document.getElementById('ditherStrengthValue').textContent = parseFloat(this.value).toFixed(1);
+				applyDither();
+			});
+			document.getElementById('ditherContrast').addEventListener('input', function () {
+				document.getElementById('ditherContrastValue').textContent = parseFloat(this.value).toFixed(1);
+				applyDither();
+			});
+		}
+
+		document.body.onload = function () {
+			canvas = document.getElementById('canvas');
+			ctx = canvas.getContext('2d');
+			fillCanvas('white');
+			paintManager = new PaintManager(canvas, ctx);
+			cropManager = new CropManager(canvas, ctx, paintManager);
+			paintManager.initPaintTools();
+			cropManager.initCropTools();
+			initEventHandlers();
+			updateButtonStatus();
+		};
+	</script>
+</body>
+</html>
