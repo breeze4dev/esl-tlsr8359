@@ -9,6 +9,9 @@ const bwPalette = [
   [255, 255, 255, 255],
 ]
 
+/** B&W threshold for TLSR panel packing; keep in sync with ESLTagSync utils/esl/esl_protocol.js */
+const ESL_PANEL_BW_THRESHOLD = 140;
+
 function dithering(ctx, width, height, threshold, type) {
   const bayerThresholdMap = [
     [  15, 135,  45, 165 ],
@@ -95,15 +98,17 @@ function canvas2bytes(canvas, type='bw') {
       if (y < hCanvas) {
         const index = (w * 4 * y) + x * 4;
         if (type !== 'bwr') {
-          // white pixel -> 1, black/colored -> 0
-          bit = (imageData.data[index] > 0 &&
-                 imageData.data[index + 1] > 0 &&
-                 imageData.data[index + 2] > 0) ? 1 : 0;
+          // Match ESLTagSync / EPD-nRF5: grayscale threshold (antialiased text uses grays; RGB-all->0 was wrong).
+          const r = imageData.data[index];
+          const g = imageData.data[index + 1];
+          const b = imageData.data[index + 2];
+          const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+          bit = gray >= ESL_PANEL_BW_THRESHOLD ? 1 : 0;
         } else {
-          // red layer: strong red, little/no green/blue -> 1
-          bit = (imageData.data[index] > 0 &&
-                 imageData.data[index + 1] === 0 &&
-                 imageData.data[index + 2] === 0) ? 1 : 0;
+          const r = imageData.data[index];
+          const g = imageData.data[index + 1];
+          const b = imageData.data[index + 2];
+          bit = r > 150 && r > g * 1.25 && r > b * 1.25 ? 1 : 0;
         }
       } else {
         // 122 下面的 6 行补白（BW=1，RED=0）
