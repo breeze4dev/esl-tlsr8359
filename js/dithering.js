@@ -82,13 +82,16 @@ function dithering(ctx, width, height, threshold, type) {
   ctx.putImageData(imageData, 0, 0);
 }
 
-// canvas -> buffer: 250x128 面板，列主序，从右到左，高度固定 128 像素（底部补白），每 8 像素打包成 1 字节。
+// canvas -> buffer: column-major, MSB first vertical byte, right-to-left columns.
+// 2.13: 250x122 canvas, logical 128 rows with bottom padding to match firmware.
+// 2.6: 296x152 canvas, no padding (hPanel === hCanvas).
 function canvas2bytes(canvas, type='bw') {
   const ctx = canvas.getContext("2d");
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const w = canvas.width;
-  const hCanvas = canvas.height;      // 实际绘制高度 122
-  const hPanel = 128;                 // 面板高度 128，底部补白
+  const hCanvas = canvas.height;
+  const is213Pad = (w === 250 && hCanvas === 122);
+  const hPanel = is213Pad ? 128 : hCanvas;
   const arr = [];
   let buffer = [];
 
@@ -111,7 +114,6 @@ function canvas2bytes(canvas, type='bw') {
           bit = r > 150 && r > g * 1.25 && r > b * 1.25 ? 1 : 0;
         }
       } else {
-        // 122 下面的 6 行补白（BW=1，RED=0）
         bit = (type !== 'bwr') ? 1 : 0;
       }
       buffer.push(bit);

@@ -66,6 +66,16 @@
 				</div>
 			</div>
 			<div class="flex-container">
+				<div class="flex-group">
+					<label for="driverSelect">墨水屏驱动:</label>
+					<select id="driverSelect">
+						<option value="2">2.13 BWR (250×122)</option>
+						<option value="5">2.6 BWR (296×152)</option>
+					</select>
+					<button id="btnConfirmDriver" type="button" class="primary" onclick="confirmDriverToDevice()">确认写入设备</button>
+				</div>
+			</div>
+			<div class="flex-container">
 				<div class="flex-group" style="justify-content: flex-end;">
 					<label for="cmdTXT">命令(hex):</label>
 					<input type="text" id="cmdTXT" style="min-width: 200px;" placeholder="">
@@ -112,6 +122,7 @@
 					<label for="canvasSize">画布尺寸:</label>
 					<select id="canvasSize" onchange="updateCanvasSize()">
 						<option value="2.13_250_122" selected>2.13 (250x122)</option>
+						<option value="2.6_296_152">2.6 (296x152)</option>
 					</select>
 				</div>
 				<div class="flex-group">
@@ -258,9 +269,11 @@
 		let reconnectTrys = 0;
 		let canvas, ctx;
 		let paintManager, cropManager;
+		let syncingPanelFromDevice = false;
 
 		const canvasSizes = [
-			{ name: '2.13_250_122', width: 250, height: 122 }
+			{ name: '2.13_250_122', width: 250, height: 122 },
+			{ name: '2.6_296_152', width: 296, height: 152 }
 		];
 
 		function resetVariables() {
@@ -506,10 +519,14 @@
 						if (el) { el.value = String(scene); addLog('已同步时钟样式: ' + scene); }
 					}
 				}
+				if (buf.length >= 6 && buf[0] === 0xF2) {
+					applyDevicePanelFromF2(buf);
+				}
 			});
 			document.getElementById('connectbutton').textContent = '断开';
 			await connectRXTX();
 			await sendCommand(hexToBytes('F0'));
+			await sendCommand(hexToBytes('F2'));
 			updateButtonStatus();
 		}
 
@@ -538,11 +555,13 @@
 			const connected = gattServer != null && gattServer.connected;
 			const disabled = forceDisabled ? true : !connected;
 			document.getElementById('reconnectbutton').disabled = !bleDevice || connected;
-			const ctrlIds = ['btnImageMode', 'btnCalendarMode', 'btnClockMode', 'btnClearBlack', 'btnClearWhite', 'btnApplyOffset', 'btnSelectDate', 'btnClearCanvas', 'sendimgbutton', 'sendcmdbutton'];
+			const ctrlIds = ['btnImageMode', 'btnCalendarMode', 'btnClockMode', 'btnConfirmDriver', 'btnClearBlack', 'btnClearWhite', 'btnApplyOffset', 'btnSelectDate', 'btnClearCanvas', 'sendimgbutton', 'sendcmdbutton'];
 			ctrlIds.forEach(function (id) {
 				const el = document.getElementById(id);
 				if (el) el.disabled = disabled;
 			});
+			const drvSel = document.getElementById('driverSelect');
+			if (drvSel) drvSel.disabled = disabled;
 		}
 
 		async function sendimg() {
@@ -558,8 +577,10 @@
 				addLog('本设备仅支持双色或三色传图，请切换颜色模式后重试');
 				return;
 			}
-			if (!((w === 250 && h === 122) || (w === 122 && h === 250))) {
-				addLog('画布尺寸须为 250x122 或 122x250');
+			const ok213 = (w === 250 && h === 122) || (w === 122 && h === 250);
+			const ok260 = (w === 296 && h === 152) || (w === 152 && h === 296);
+			if (!ok213 && !ok260) {
+				addLog('画布须为 250x122 / 122x250 或 296x152 / 152x296');
 				return;
 			}
 			const startTime = Date.now();
@@ -637,13 +658,76 @@
 			image.src = URL.createObjectURL(imageFile.files[0]);
 		}
 
-		function updateCanvasSize() {
+		function updateCanvasSizeWithoutDeviceSync() {
 			const name = document.getElementById('canvasSize').value;
 			const size = canvasSizes.find(s => s.name === name);
 			if (size) {
 				canvas.width = size.width;
 				canvas.height = size.height;
 				updateImage();
+			}
+		}
+
+		async function confirmDriverToDevice() {
+			if (!rxtxCharacteristic || !gattServer || !gattServer.connected) {
+				addLog('请先连接蓝牙');
+				return;
+			}
+			const drvEl = document.getElementById('driverSelect');
+			if (!drvEl) return;
+			const v = parseInt(drvEl.value, 10);
+			const cmd = v === 5 ? 'e005' : 'e002';
+			try {
+				await rxTxSendCommand(hexToBytes(cmd));
+				await rxTxSendCommand(hexToBytes('df'));
+				addLog('驱动已写入 Flash (E0 ' + (v === 5 ? '05' : '02') + ')');
+				syncingPanelFromDevice = true;
+				try {
+					const cs = document.getElementById('canvasSize');
+					if (cs) {
+						cs.value = v === 5 ? '2.6_296_152' : '2.13_250_122';
+						updateCanvasSizeWithoutDeviceSync();
+					}
+				} finally {
+					syncingPanelFromDevice = false;
+				}
+				await sendCommand(hexToBytes('F2'));
+			} catch (e) {
+				console.error(e);
+				addLog('写入失败: ' + (e && e.message ? e.message : e));
+			}
+		}
+
+		function applyDevicePanelFromF2(buf) {
+			const panel = buf[1];
+			const cw = (buf[2] << 8) | buf[3];
+			const ch = (buf[4] << 8) | buf[5];
+			const sel = document.getElementById('canvasSize');
+			const drv = document.getElementById('driverSelect');
+			if (!sel || !canvas) return;
+			syncingPanelFromDevice = true;
+			try {
+				if (panel === 5 || (cw === 296 && ch === 152)) {
+					sel.value = '2.6_296_152';
+					if (drv) drv.value = '5';
+				} else {
+					sel.value = '2.13_250_122';
+					if (drv) drv.value = '2';
+				}
+				updateCanvasSizeWithoutDeviceSync();
+				if (typeof paintManager !== 'undefined') paintManager.saveToHistory();
+			} finally {
+				syncingPanelFromDevice = false;
+			}
+			addLog('已从设备同步画布 ' + cw + 'x' + ch + ' (panel_type=' + panel + ')');
+		}
+
+		function updateCanvasSize() {
+			updateCanvasSizeWithoutDeviceSync();
+			const drv = document.getElementById('driverSelect');
+			if (drv && !syncingPanelFromDevice) {
+				const name = document.getElementById('canvasSize').value;
+				drv.value = name === '2.6_296_152' ? '5' : '2';
 			}
 		}
 
@@ -684,6 +768,21 @@
 				document.getElementById('ditherContrastValue').textContent = parseFloat(this.value).toFixed(1);
 				applyDither();
 			});
+			const drvSel = document.getElementById('driverSelect');
+			if (drvSel) {
+				drvSel.addEventListener('change', function () {
+					if (syncingPanelFromDevice) return;
+					const cs = document.getElementById('canvasSize');
+					if (!cs) return;
+					cs.value = this.value === '5' ? '2.6_296_152' : '2.13_250_122';
+					syncingPanelFromDevice = true;
+					try {
+						updateCanvasSizeWithoutDeviceSync();
+					} finally {
+						syncingPanelFromDevice = false;
+					}
+				});
+			}
 		}
 
 		document.body.onload = function () {
